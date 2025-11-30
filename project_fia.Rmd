@@ -1,0 +1,529 @@
+---
+title: "project"
+author: "Samjhana Wagle"
+date: "2025-11-28"
+output: html_document
+---
+
+# Introduction  
+In this report, we are doing exploratory data analysis of the Georgia Forest Inventory Analysis (FIA) dataset using tree level and plot level information. The goal is to provide a clear understanding of the structure and characteristics of the dataset including species, tree size, biomass and height-diameter relationships. The analysis also demonstrates summary statistics and visualizations that helpd for future modeling.   
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE, include=FALSE}
+
+library(tidyverse)
+
+library(lubridate)
+
+library(janitor)
+
+library(knitr)
+
+library(kableExtra)
+
+library(flextable)
+
+library(dplyr)
+
+library(purrr)
+
+library(tidyr)
+
+library(scales)
+
+library(ggplot2)
+
+
+library(maps)
+library(sf)
+
+```
+
+
+
+# Data Overview  
+We used three datasets for the analysis which are tree-level data, plot-level data and species reference table. Tree-level data which contains measurements of individual trees, including diameter, height, biomass and species codes. Plot-level data mainly provides geographic and environmental context for plots. Species reference table links species codes to scientific and common names. 
+
+
+
+```{r}
+
+#lets check the project direction
+getwd()
+dir()
+
+#Importing FIA plot data and tree data
+
+ga_tree <- read_csv("./data/GA_TREE.csv")
+names(ga_tree) <- tolower(names(ga_tree)) #lowering all column names
+
+ga_plot <- read_csv("./data/GA_PLOT.csv")
+names(ga_plot) <- tolower(names(ga_plot))  #lowering all column names
+
+spp_name <-  read_csv("./data/REF_SPECIES.csv")
+names(spp_name) <- tolower(names(spp_name))  #lowering all column names
+
+
+#length of columns
+length(ga_tree) 
+length(ga_plot)
+
+#Structure of data
+str(ga_tree$plot)
+str(ga_tree$boleht)
+
+#number of rows and columns for tree data
+nrow(ga_tree)
+ncol(ga_tree)
+
+#number of rows and columns for plot data
+dim(ga_plot)
+
+# number of county in the data
+length(unique(ga_tree$countycd))
+
+```
+
+After importing the datasets, all column names were standardized to lowercase. The tree dataset contains over 1.85 million observations across 198 variables, and the plot dataset contains 72.5 thousands across 159 counties in Georgia.  
+
+
+# Data cleaning and transformation
+
+
+```{r}
+# Lets clean the tree level data
+
+ga_tree_clean <- ga_tree %>%
+  filter(statuscd %in% c(1, 2), plot <90000) %>%
+  select(statuscd, countycd, plot, subp, tree, 
+         spcd, dia, actualht, tpa_unadj, drybio_ag, carbon_ag, invyr, modified_date, created_date) %>%
+  mutate(species = as.factor(spcd),
+    dbh_cm = dia * 2.54,         # inches to cm
+    height_m = actualht * 0.3048,      # feet to meters
+    biomass_kg = drybio_ag / 1000, # grams to kg
+    size_class = case_when(
+dbh_cm < 10 ~ "Small",
+dbh_cm < 30 ~ "Medium",
+TRUE ~ "Large") %>% 
+  factor(levels = c("Small", "Medium", "Large"))
+  ) 
+  
+
+# Lets join the species name data
+ga_tree_named <- ga_tree_clean %>%
+  left_join(
+    spp_name %>%
+      select(spcd, common_name, scientific_name),
+    by = "spcd"
+  )
+
+
+# Number of species
+length(unique(ga_tree_clean$spcd))
+
+#======= Subsetting data =============
+ga_small <- ga_tree_clean %>% filter(dia < 10) %>% select(dia, actualht, everything())
+ga_big <- ga_tree_clean %>% filter(dia >= 10) %>% select(dia, actualht, everything())
+
+```
+
+We filter only the observations with STATUSCD 1 and 2 to focus on live and standing trees only. Some variables were added to facilitate analysis:  
+- DBH in centimeters: converted from inches   
+- Height in meters: converted from feet   
+- Biomass in kilograms: converted from grams   
+- Size class: categorized into Small (<10 cm), Medium (10–30 cm), and Large (>30 cm) based on dbh.   
+The cleaned dataset includes only relevant columns for analysis and has properly formatted factor variables for species and size classes. Trees were joined with the species reference table to include common and scientific names, for clear labeling in visualization and summaries.   
+
+# Data Summarry
+
+A custom function was used to summarize minimum, maximum, mean, and standard deviation. Then we summarize the DBH and height per plot for 300 plots and presented in a nice readable table.  
+
+```{r}
+#Summarizing diameter and height by plot 
+
+summarize_many <- function(data, group_var, vars) {
+  data %>%
+    group_by({{ group_var }}) %>%
+    summarise(
+      across(
+        all_of(vars),
+        list(
+          min  = ~ min(.x, na.rm = TRUE),
+          max  = ~ max(.x, na.rm = TRUE),
+          mean = ~ mean(.x, na.rm = TRUE),
+          sd   = ~ sd(.x, na.rm = TRUE)
+        ),
+        .names = "{.fn}_{.col}"
+      ),
+      .groups = "drop"
+    )
+}
+
+# summary of diameter and height by plots
+data_sum <- summarize_many(
+  ga_tree_clean,
+  plot,
+  vars = c("dbh_cm", "height_m")
+)
+
+data_sum <- data_sum %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+# Creating table
+sum_dbh_ht <- flextable(data_sum) %>% set_caption("Table 1: Diameter and Height Summary by Plot")%>%
+  add_header_row(
+    values = c("", "DBH (cm)", "Height (m)"),
+    colwidths = c(1, 4, 4))%>%  
+  set_header_labels(
+    plot = "Plot",
+    min_dbh_cm = "Minimum",
+    max_dbh_cm = "Maximum",
+    mean_dbh_cm = "Mean",
+    sd_dbh_cm = "SD",
+    min_height_m = "Minimum",
+    max_height_m = "Maximum",
+    mean_height_m = "Mean",
+    sd_height_m = "SD") %>%
+    theme_booktabs()
+
+sum_dbh_ht
+```
+
+# Temporal Patterns in Data Collection
+
+Tree observations include data created date (created_date). We used that to analyze the temporal pattern of the data collection.  
+Trees were grouped by time of day, weekday, and month to explore patterns in data collection. Morning vs afternoon observations were identified, which may inform quality control and operational planning.
+
+
+```{r}
+
+# Lets analyze the data created time 
+
+date_time <- ga_tree_clean %>%
+  mutate(
+    creat_date = as_date(created_date),
+    time = format(created_date, "%H:%M:%S"),
+    weekday = wday(created_date, label = TRUE),
+    month = month(created_date, label = TRUE),
+    is_weekend = weekday %in% c("Sat", "Sun")) %>%
+  select(created_date, creat_date, time, weekday, month,
+          is_weekend, countycd, plot, tree, spcd, dia, actualht, tpa_unadj, invyr, species, size_class)
+
+
+morning_obs <- date_time %>%
+  filter(time < "12:00:00")
+
+day_obs <- date_time %>%
+  filter(time > "13:00:00")
+
+
+```
+
+# Species Composition   
+
+The dataset contains over 189 unique species. At first, we summarized the species level information for diameter and height. 
+
+```{r}
+# summary of diameter and height by species
+
+data_sum_spp <- summarize_many(
+  ga_tree_named,
+  scientific_name,
+  vars = c("dbh_cm", "height_m")
+)
+
+data_sum_spp <- data_sum_spp %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+sum_dbh_ht_spp <- flextable(data_sum_spp) %>%
+  set_caption("Table 2: Diameter and Height Summary by Species") %>%
+  add_header_row(values = c("", "DBH (cm)", "Height (m)"),
+                 colwidths = c(1, 4, 4)) %>%
+  set_header_labels(
+    scientific_name = "Species",
+    min_dbh_cm = "Minimum",
+    max_dbh_cm = "Maximum",
+    mean_dbh_cm = "Mean",
+    sd_dbh_cm = "SD",
+    min_height_m = "Minimum",
+    max_height_m = "Maximum",
+    mean_height_m = "Mean",
+    sd_height_m = "SD"
+  ) %>%
+  fontsize(size = 10, part = "all") %>%
+    width(j = "scientific_name", width = 2.5) %>%
+   theme_booktabs()
+
+sum_dbh_ht_spp
+```
+
+Then, we visualized the diameter and height relationship for all data in scatterplot with showing small, medium and large trees in the plot.    
+
+
+```{r}
+#total number of species
+length(unique(ga_tree_named$scientific_name))
+
+
+ggplot(ga_tree_named, aes(x = dbh_cm, y = height_m, color = species)) +
+  geom_point(show.legend = FALSE) +
+  geom_vline(xintercept = c(10, 30), linetype = "dashed", color = "black") +
+  annotate("text", x = 5, y = 52, label = "Small\n< 10", vjust = 0, hjust = 0.5, size = 3) +
+  annotate("text", x = 18, y = 52, label = "Medium\n10 - 30", vjust = 0, hjust = 0.5, size = 3)+
+  annotate("text", x = 35, y = 52, label = "Large\n> 30", vjust = 0, hjust = 0.5, size = 3)+
+  labs(
+    x = "DBH (cm)",
+    y = "Height (m)"
+  ) +
+  scale_x_continuous(limits = c(0, 199), expand = c(0, 0), breaks = seq(0, 199, by = 20)) +
+  scale_y_continuous(limits = c(0, 59), expand = c(0, 0), breaks = seq(0, 59, by = 5)) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank()  
+  )
+  
+
+```
+
+After that, top 10 species by number of trees are summarized and visualized in bar diagram. 
+
+
+```{r}
+# Observations count by species
+counts_by_spp <- ga_tree_named %>%
+  group_by(scientific_name) %>%
+  summarize(count = n()) %>%
+  ungroup()
+
+
+# top 10 species by observations
+top_10_spp <- ga_tree_named %>%
+  group_by(scientific_name) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  arrange(desc(count)) %>%
+  slice_head(n = 10)
+
+
+
+# Bar plot
+ggplot(top_10_spp, aes(x = reorder(scientific_name, count), y = count)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  scale_y_continuous(
+    breaks = seq(0, max(top_10_spp$count), by = 50000),  
+    labels = label_number(scale = 1e-3, suffix = "k", accuracy = 1)
+  ) +
+  labs(
+    x = "Species (Scientific Name)",
+    y = "Number of Observations",
+    title = "Top 10 tree Species found in Georgia"
+  ) +
+  theme_bw(base_size = 14)
+
+
+```
+
+# Tree biomass assessment   
+
+**Biomass distribution by Size class**  
+We first assessed the tree biomass across all observations by size class (small, medium, large) and visualized the differences. Larger trees contributed more biomass, so using a standard linear scale made the biomass of small and medium trees almost invisible. To solve this issue, we applied a log-scale to the y-axis, which allowed us to clearly display the distribution of biomass across all three size classes.
+
+
+
+```{r}
+ggplot(ga_tree_named, aes(x = size_class, y = biomass_kg)) +
+    geom_boxplot(fill = "lightgreen") +
+    scale_y_log10() +
+    labs(
+        title = "Tree Biomass by Size Class in Georgia",
+        x = "Size Class",
+        y = "Biomass (kg, log scale)"
+    ) +
+    theme_bw()
+
+```
+
+**Biomass distribution by species**   
+We summarized the biomass of the top three pine species by observations. Then, we visualized their relationship between diameter and height, with individual tree biomass represented by the point size and species indicated by three different colors. 
+
+
+
+```{r}
+biomass_top_spp <- ga_tree_named %>% filter(scientific_name %in% c("Pinus taeda", "Pinus elliottii" , "Pinus echinata"))
+
+ggplot(biomass_top_spp, aes(x = dbh_cm, y = height_m, color = scientific_name, size = biomass_kg)) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Tree height and diameter relationship of top three pine species with biomass in GA", x = "DBH (cm)", y = "Tree height(m)", color = "Species", size = "Biomass (kg)") +
+  theme_minimal()
+
+```
+
+
+# Modeling Height-Diameter Relationships   
+
+**Species-Level Models**   
+For each species, a simple linear model was fitted to predict height from DBH. species with fewer than five trees were labeled as not enough trees for modeling. A for loop iterated over all unique plots, and an if statement handled plots with too few trees. Then, we printed the summary of the "Pinus taeda" species model. 
+
+
+
+
+```{r}
+
+unique_species <- unique(ga_tree_named$scientific_name)
+model_list <- list()
+
+for(s in unique_species){
+  data_s <- ga_tree_named %>%
+    filter(scientific_name == s) %>%
+    filter(!is.na(height_m) & !is.na(dbh_cm)) 
+
+  if(nrow(data_s) >= 5){
+    model_list[[as.character(s)]] <- lm(height_m ~ dbh_cm, data = data_s)
+  } else {
+    model_list[[as.character(s)]] <- "Not enough trees"
+  }
+}
+
+
+summary(model_list[["Pinus taeda"]])
+
+
+```
+
+**Nested Data Frame**  
+To facilitate batch modeling, a nested dataframe was created where each species contains its tree data. Linear models were applied to each nested dataset, and model statistics (R², residuals, etc.) were extracted. These results allow comparison of growth patterns across species. We can see the summary of the first species
+
+```{r}
+nested_df <- ga_tree_named %>%
+  group_by(scientific_name) %>%
+  nest() %>%
+  mutate(
+        data_clean = map(data, ~ .x %>% filter(!is.na(height_m), !is.na(dbh_cm))),
+     model = map(data_clean, ~ {
+      if (nrow(.x) >= 5) {
+        lm(actualht ~ dia, data = .x)
+      } else {
+        NA 
+      }
+    })
+  )
+
+#========= lets see the model summary of first species ================
+summary(nested_df$model[[1]])
+
+
+```
+
+
+
+# Spatial Context 
+
+We plotted the available coordinates in the plot dataset to visualize the locations of the sample plots of FIA in Georgia. This spatial visualization is useful for assessing geographic coverage of the plots. 
+
+
+
+```{r}
+
+
+fia_df <- ga_plot %>% select(plot, lat, lon) %>% 
+  distinct() %>%
+  filter(!is.na(lat), !is.na(lon), !(plot <90000)) %>%
+  group_by(plot) %>%
+  filter(lat == lat[1])
+
+# Get map data for Georgia
+ga_data <- map_data("state", region = "georgia")
+
+
+ggplot() +
+  geom_polygon(data = ga_data, aes(x = long, y = lat, group = group), fill =  "grey", color = "black") +
+  geom_point(data = fia_df, aes(x = lon, y = lat), color = "red", size = 1.5) +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "FIA Plot Locations in Georgia"
+  ) +
+  coord_fixed(xlim = c(-86, -80), ylim = c(30, 35)) +  # zoom to Georgia
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+ 
+
+
+
+ 
+  
+```
+
+```{r}
+
+
+# Load required libraries
+
+
+# --- DATA PREPARATION ---
+# Filter out NA coordinates (essential)
+fia_df <- ga_plot %>%
+  filter(!is.na(lat), !is.na(lon))
+
+# Get data frame for Georgia state boundaries
+georgia_map <- map_data("state") %>%
+  filter(region == "georgia")
+
+# --- PLOTTING WITH CORRECTED COORDINATES ---
+ggplot() +
+  # A. Add the Georgia state boundary map layer
+  geom_polygon(
+    data = georgia_map,
+    aes(x = long, y = lat, group = group),
+    fill = "lightgray",
+    color = "black",
+    linewidth = 0.5
+  ) +
+
+  # B. Add the FIA plot points layer
+  geom_point(
+    data = fia_df,
+    aes(x = lon, y = lat),
+    size = 2.5,
+    color = "#0000FF", # High-contrast blue
+    alpha = 0.7
+  ) +
+
+  # C. Set the coordinate system, boundaries, and labels
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "FIA Plot Locations on a Map of Georgia"
+  ) +
+  # **FIXED:** Adjusted limits to ensure all points are visible
+  coord_fixed(
+    xlim = c(-86.0, -80.0), # Maintained the original wide longitude window for map context
+    ylim = c(30.0, 35.2),   # **CRITICAL CHANGE:** Raised the max latitude to 35.2
+    ratio = 1.3
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+
+# Conclusions 
+
+This exploratory analysis highlights following key findings:  
+- Georgia FIA tree data has 189 species and 509 plots.  
+- Tree size classes differ substantially in biomass distributions where larger trees contributed for more biomass.  
+- Height-diameter relationships vary among species supporting species level modeling approaches.  
+- Spatial visualization provide insights for operational planning and sampling efficiency.  
+
+
+**Future analyses**   
+Future analysis may include:  
+- Modeling biomass and carbon accumulation across species and plots  
+- Assessing disturbance impacts (mortality, damage agents)  
+- Integrating plot-level environmental covariates for growth projections  
+
+Overall, this report demonstrates a comprehensive workflow for data cleaning, summarization, visualization, and modeling, providing a solid foundation for further analysis.  
+
