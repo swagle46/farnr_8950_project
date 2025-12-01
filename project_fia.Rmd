@@ -1,5 +1,5 @@
 ---
-title: "project"
+title: "FANR 8950 Final Project: Georgia FIA Tree Data Analysis"
 author: "Samjhana Wagle"
 date: "2025-11-28"
 output: html_document
@@ -31,8 +31,8 @@ library(scales)
 
 library(ggplot2)
 
-
 library(maps)
+
 library(sf)
 
 ```
@@ -125,7 +125,7 @@ ga_big <- ga_tree_clean %>% filter(dia >= 10) %>% select(dia, actualht, everythi
 
 ```
 
-We filter only the observations with STATUSCD 1 and 2 to focus on live and standing trees only. Some variables were added to facilitate analysis:  
+We filter the observations with STATUSCD 1 and 2 to focus on live and standing trees only. Some variables were added to facilitate analysis:  
 - DBH in centimeters: converted from inches   
 - Height in meters: converted from feet   
 - Biomass in kilograms: converted from grams   
@@ -134,7 +134,7 @@ The cleaned dataset includes only relevant columns for analysis and has properly
 
 # Data Summarry
 
-A custom function was used to summarize minimum, maximum, mean, and standard deviation. Then we summarize the DBH and height per plot for 300 plots and presented in a nice readable table.  
+A custom function was used to summarize minimum, maximum, mean, and standard deviation. Then we summarize the DBH and height per plot for 295 plots and presented in a nice readable table.  
 
 ```{r}
 #Summarizing diameter and height by plot 
@@ -255,7 +255,7 @@ sum_dbh_ht_spp <- flextable(data_sum_spp) %>%
 sum_dbh_ht_spp
 ```
 
-Then, we visualized the diameter and height relationship for all data in scatterplot with showing small, medium and large trees in the plot.    
+Then, we visualized the diameter and height relationship for all species with different colors in scatterplot with showing size class (small, medium and large) detail .    
 
 
 ```{r}
@@ -269,7 +269,7 @@ ggplot(ga_tree_named, aes(x = dbh_cm, y = height_m, color = species)) +
   annotate("text", x = 5, y = 52, label = "Small\n< 10", vjust = 0, hjust = 0.5, size = 3) +
   annotate("text", x = 18, y = 52, label = "Medium\n10 - 30", vjust = 0, hjust = 0.5, size = 3)+
   annotate("text", x = 35, y = 52, label = "Large\n> 30", vjust = 0, hjust = 0.5, size = 3)+
-  labs(
+  labs(title = "Height-diameter relationship of various species in GA",
     x = "DBH (cm)",
     y = "Height (m)"
   ) +
@@ -351,7 +351,7 @@ biomass_top_spp <- ga_tree_named %>% filter(scientific_name %in% c("Pinus taeda"
 
 ggplot(biomass_top_spp, aes(x = dbh_cm, y = height_m, color = scientific_name, size = biomass_kg)) +
   geom_point(alpha = 0.7) +
-  labs(title = "Tree height and diameter relationship of top three pine species with biomass in GA", x = "DBH (cm)", y = "Tree height(m)", color = "Species", size = "Biomass (kg)") +
+  labs(title = "Tree height-diameter relationship of top three pine species with biomass in GA", x = "DBH (cm)", y = "Tree height(m)", color = "Species", size = "Biomass (kg)") +
   theme_minimal()
 
 ```
@@ -416,7 +416,7 @@ summary(nested_df$model[[1]])
 
 # Spatial Context 
 
-We plotted the available coordinates in the plot dataset to visualize the locations of the sample plots of FIA in Georgia. This spatial visualization is useful for assessing geographic coverage of the plots. 
+We plotted the available coordinates in the plot dataset to visualize the locations of the sample plots of FIA in Georgia. There were many latitude and longitude data in one plot. So, at first, we select the one latitude and longitude coordinate per plot. Then, we plotted the latitude and longitude of the plots. This spatial visualization is useful for assessing geographic coverage of the plots. 
 
 
 
@@ -456,67 +456,14 @@ ggplot() +
   
 ```
 
-```{r}
 
-
-# Load required libraries
-
-
-# --- DATA PREPARATION ---
-# Filter out NA coordinates (essential)
-fia_df <- ga_plot %>%
-  filter(!is.na(lat), !is.na(lon))
-
-# Get data frame for Georgia state boundaries
-georgia_map <- map_data("state") %>%
-  filter(region == "georgia")
-
-# --- PLOTTING WITH CORRECTED COORDINATES ---
-ggplot() +
-  # A. Add the Georgia state boundary map layer
-  geom_polygon(
-    data = georgia_map,
-    aes(x = long, y = lat, group = group),
-    fill = "lightgray",
-    color = "black",
-    linewidth = 0.5
-  ) +
-
-  # B. Add the FIA plot points layer
-  geom_point(
-    data = fia_df,
-    aes(x = lon, y = lat),
-    size = 2.5,
-    color = "#0000FF", # High-contrast blue
-    alpha = 0.7
-  ) +
-
-  # C. Set the coordinate system, boundaries, and labels
-  labs(
-    x = "Longitude",
-    y = "Latitude",
-    title = "FIA Plot Locations on a Map of Georgia"
-  ) +
-  # **FIXED:** Adjusted limits to ensure all points are visible
-  coord_fixed(
-    xlim = c(-86.0, -80.0), # Maintained the original wide longitude window for map context
-    ylim = c(30.0, 35.2),   # **CRITICAL CHANGE:** Raised the max latitude to 35.2
-    ratio = 1.3
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 14, face = "bold")
-  )
-```
-
-
-# Conclusions 
+# Conclusions   
 
 This exploratory analysis highlights following key findings:  
-- Georgia FIA tree data has 189 species and 509 plots.  
+- Georgia FIA tree data has 189 species and 295 plots.  
 - Tree size classes differ substantially in biomass distributions where larger trees contributed for more biomass.  
 - Height-diameter relationships vary among species supporting species level modeling approaches.  
-- Spatial visualization provide insights for operational planning and sampling efficiency.  
+- Temporal and spatial analysis and visualization provide insights for operational planning and sampling efficiency.  
 
 
 **Future analyses**   
