@@ -17,7 +17,7 @@ The analysis includes data cleaning, transformation, visualizations, and species
 ## Credit and Contact Information
 **Author:** Samjhana Wagle  
 **Email:** [swagle@uga.edu](mailto:swagle@uga.edu)  
-**GitHub Repository:** [https://github.com/swagle46/project](https://github.com/swagle46/farnr_8950_project)
+**GitHub Repository:** [https://github.com/swagle46/project](https://github.com/swagle46/fanr_8950_project)
 
 
 ---
@@ -45,4 +45,4 @@ The analysis includes data cleaning, transformation, visualizations, and species
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/swagle46/farnr_8950_project 
+git clone https://github.com/swagle46/fanr_8950_project 
